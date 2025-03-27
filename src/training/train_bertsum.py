@@ -5,7 +5,8 @@
 
 import torch
 from torch.utils.data import DataLoader, random_split
-from transformers import BertTokenizerFast, AdamW, get_linear_schedule_with_warmup, set_seed
+from transformers import BertTokenizerFast, get_scheduler, set_seed
+from torch.optim import AdamW
 import argparse
 import os
 import json
@@ -60,26 +61,40 @@ class BertSumTrainer:
         )
         self.model.to(self.device)
         
-        self.optimizer = None
-        self.scheduler = None
-    
-    def prepare_optimizer(self, num_training_steps, warmup_steps=0):
-        """准备优化器和学习率调度器"""
         no_decay = ["bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
             {
                 "params": [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)],
-                "weight_decay": self.weight_decay,
+                "weight_decay": weight_decay,
             },
             {
                 "params": [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)],
                 "weight_decay": 0.0,
             },
         ]
+        self.optimizer = AdamW(optimizer_grouped_parameters, lr=learning_rate)
+        self.scheduler = None
+    
+    def prepare_optimizer(self, num_training_steps, warmup_steps=0):
+        """准备优化器和学习率调度器"""
+        if self.optimizer is None:
+            no_decay = ["bias", "LayerNorm.weight"]
+            optimizer_grouped_parameters = [
+                {
+                    "params": [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)],
+                    "weight_decay": self.weight_decay,
+                },
+                {
+                    "params": [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)],
+                    "weight_decay": 0.0,
+                },
+            ]
+            
+            self.optimizer = AdamW(optimizer_grouped_parameters, lr=self.learning_rate)
         
-        self.optimizer = AdamW(optimizer_grouped_parameters, lr=self.learning_rate)
-        self.scheduler = get_linear_schedule_with_warmup(
-            self.optimizer,
+        self.scheduler = get_scheduler(
+            "linear",
+            optimizer=self.optimizer,
             num_warmup_steps=warmup_steps,
             num_training_steps=num_training_steps
         )
@@ -125,7 +140,8 @@ class BertSumTrainer:
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            self.scheduler.step()
+            if self.scheduler is not None:
+                self.scheduler.step()
             
             total_loss += loss.item()
             progress_bar.set_postfix({"loss": loss.item()})
