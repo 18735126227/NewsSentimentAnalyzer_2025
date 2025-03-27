@@ -10,6 +10,9 @@ class BertSumExtractor(PreTrainedModel):
     """
     
     def __init__(self, config=None, bert_model_name="bert-base-chinese", dropout=0.1, use_sentiment=False):
+        if config is None:
+            from transformers import BertConfig
+            config = BertConfig.from_pretrained(bert_model_name)
         super().__init__(config)
         self.model = BertSumExt(bert_model_name=bert_model_name, dropout=dropout, use_sentiment=use_sentiment)
         self.tokenizer = BertTokenizerFast.from_pretrained(bert_model_name)

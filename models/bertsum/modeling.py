@@ -38,15 +38,15 @@ class BertSumExt(nn.Module):
         pooled_output = outputs.pooler_output  # [batch_size, hidden_size]
         
         
-        cls_indices = torch.nonzero(input_ids == self.bert.config.cls_token_id, as_tuple=False)
+        cls_indices = torch.nonzero(input_ids == 101, as_tuple=False)  # 101 is the CLS token ID for BERT
         batch_indices = cls_indices[:, 0]
         seq_indices = cls_indices[:, 1]
         
         cls_output = sequence_output[batch_indices, seq_indices]  # [num_cls, hidden_size]
         
-        max_sentences = sentence_mask.size(1)
-        batch_size = input_ids.size(0)
-        hidden_size = sequence_output.size(2)
+        batch_size = input_ids.size(0) if input_ids is not None else 0
+        hidden_size = sequence_output.size(2) if sequence_output is not None else 0
+        max_sentences = sentence_mask.size(1) if sentence_mask is not None else 0
         
         expanded_cls = torch.zeros(
             batch_size, max_sentences, hidden_size, 
@@ -54,8 +54,9 @@ class BertSumExt(nn.Module):
             device=sequence_output.device
         )
         
-        sentence_indices = torch.arange(max_sentences, device=input_ids.device).unsqueeze(0).expand(batch_size, -1)
-        valid_indices = sentence_mask.bool()
+        device = input_ids.device if input_ids is not None else sequence_output.device
+        sentence_indices = torch.arange(max_sentences, device=device).unsqueeze(0).expand(batch_size, -1)
+        valid_indices = sentence_mask.bool() if sentence_mask is not None else torch.zeros(batch_size, max_sentences, dtype=torch.bool, device=device)
         
         sent_scores = self.sigmoid(self.ext_layer(self.dropout(cls_output)))  # [num_cls, 1]
         
@@ -68,10 +69,21 @@ class BertSumExt(nn.Module):
         loss = None
         if labels is not None:
             loss_fct = nn.BCELoss(reduction='none')
-            per_sentence_loss = loss_fct(sent_scores.view(-1), labels.float().view(-1))
+            sent_scores_flat = sent_scores.view(-1)
+            labels_flat = labels.float().view(-1)
             
-            masked_loss = per_sentence_loss * sentence_mask.view(-1)
-            loss = masked_loss.sum() / sentence_mask.sum()
+            min_len = min(sent_scores_flat.size(0), labels_flat.size(0))
+            per_sentence_loss = loss_fct(sent_scores_flat[:min_len], labels_flat[:min_len])
+            
+            if sentence_mask is not None:
+                mask_flat = sentence_mask.view(-1)
+                if mask_flat.size(0) != min_len:
+                    mask_flat = mask_flat[:min_len] if mask_flat.size(0) > min_len else torch.cat([mask_flat, torch.zeros(min_len - mask_flat.size(0), device=mask_flat.device)])
+                
+                masked_loss = per_sentence_loss * mask_flat
+                loss = masked_loss.sum() / (mask_flat.sum() + 1e-10)
+            else:
+                loss = per_sentence_loss.mean()
         
         sentiment_logits = None
         if self.use_sentiment and pooled_output is not None:
