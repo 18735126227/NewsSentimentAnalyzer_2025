@@ -1,0 +1,27 @@
+digraph Pegasus {
+    rankdir=TB;
+    node [shape=box, style=filled, fillcolor=lightblue, fontname="Arial"];
+    edge [fontname="Arial"];
+    
+    input [label="输入中文新闻文本"];
+    encoder [label="Pegasus编码器编码"];
+    content_channel [label="内容通道处理"];
+    sentiment_channel [label="情感通道处理"];
+    content_repr [label="内容表示提取"];
+    sentiment_attn [label="情感注意力计算"];
+    feature_fusion [label="情感感知的特征融合"];
+    decoder [label="Pegasus解码器"];
+    loss [label="多任务联合损失计算\nLoss = α·摘要损失 + β·情感损失"];
+    output [label="输出生成摘要"];
+    
+    input -> encoder;
+    encoder -> content_channel;
+    encoder -> sentiment_channel;
+    content_channel -> content_repr;
+    sentiment_channel -> sentiment_attn;
+    content_repr -> feature_fusion;
+    sentiment_attn -> feature_fusion;
+    feature_fusion -> decoder;
+    decoder -> loss;
+    loss -> output;
+}

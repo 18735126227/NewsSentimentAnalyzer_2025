@@ -1,0 +1,23 @@
+digraph BertSum {
+    rankdir=TB;
+    node [shape=box, style=filled, fillcolor=lightblue, fontname="Arial"];
+    edge [fontname="Arial"];
+    
+    input [label="输入中文新闻文本"];
+    bert [label="bert-base-chinese编码"];
+    sent_rep [label="句子表示提取\n(提取每个句子的[CLS]标记输出)"];
+    sent_score [label="句子重要性评分\n(线性层+sigmoid)"];
+    doc_sentiment [label="文档情感分类\n(线性层+softmax)"];
+    loss [label="多任务联合损失计算\nLoss = α·摘要损失 + β·情感损失"];
+    sent_select [label="情感感知的句子选择机制\n选择得分高且情感一致的句子组成摘要"];
+    output [label="输出最终摘要"];
+    
+    input -> bert;
+    bert -> sent_rep;
+    sent_rep -> sent_score;
+    sent_rep -> doc_sentiment;
+    sent_score -> loss;
+    doc_sentiment -> loss;
+    loss -> sent_select;
+    sent_select -> output;
+}
