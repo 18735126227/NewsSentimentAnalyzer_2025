@@ -1,5 +1,6 @@
 import os
 import torch
+import numpy as np
 import torch.nn as nn
 from transformers import BertTokenizerFast, PreTrainedModel
 from .modeling import BertSumExt
@@ -84,16 +85,25 @@ class BertSumExtractor(PreTrainedModel):
         Returns:
             摘要文本
         """
+        is_chinese = '。' in text or '！' in text or '？' in text
+        
         sentences = []
-        for s in text.replace('!', '。').replace('！', '。').replace('?', '。').replace('？', '。').split('。'):
-            if s.strip():
-                sentences.append(s.strip())
+        if is_chinese:
+            for s in text.replace('!', '。').replace('！', '。').replace('?', '。').replace('？', '。').split('。'):
+                if s.strip():
+                    sentences.append(s.strip())
+            end_mark = '。'
+        else:
+            for s in text.replace('!', '.').replace('?', '.').split('.'):
+                if s.strip():
+                    sentences.append(s.strip())
+            end_mark = '.'
         
         if not sentences:
             return ""
         
         if len(sentences) <= 1:
-            return sentences[0] + '。'
+            return sentences[0] + end_mark
         
         inputs = self.tokenizer(
             sentences,
@@ -103,22 +113,39 @@ class BertSumExtractor(PreTrainedModel):
             return_tensors='pt'
         )
         
+        sentence_mask = torch.ones(1, len(sentences))
+        
         device = next(self.parameters()).device
         inputs = {k: v.to(device) for k, v in inputs.items()}
+        sentence_mask = sentence_mask.to(device)
         
         with torch.no_grad():
-            scores = self.model(
+            outputs = self.model(
                 input_ids=inputs['input_ids'],
                 attention_mask=inputs['attention_mask'],
-                token_type_ids=inputs.get('token_type_ids', None)
-            )["sent_scores"].squeeze(-1)
+                token_type_ids=inputs.get('token_type_ids', None),
+                sentence_mask=sentence_mask
+            )
             
-        max_length = min(max_length, len(sentences))
-        top_indices = scores.argsort(descending=True)[:max_length].cpu().numpy()
+            sent_scores = outputs["sent_scores"]
+            
+            if len(sent_scores.shape) == 3:
+                sent_scores = sent_scores.squeeze(-1)
+            
+            max_length = min(max_length, len(sentences))
+            
+            top_indices = sent_scores[0].argsort(descending=True)[:max_length].cpu().numpy()
+            
+            top_indices = sorted([int(i) for i in top_indices])
         
-        top_indices = sorted(top_indices)
+        selected_sentences = [sentences[i] for i in top_indices]
         
-        # 生成摘要
-        summary = '。'.join([sentences[i] for i in top_indices]) + '。'
+        if not selected_sentences:
+            return sentences[0] + end_mark
+        
+        if end_mark == '.':
+            summary = '. '.join(selected_sentences) + '.'
+        else:
+            summary = end_mark.join(selected_sentences) + end_mark
         
         return summary
