@@ -84,10 +84,16 @@ class BertSumExtractor(PreTrainedModel):
         Returns:
             摘要文本
         """
-        sentences = [s.strip() for s in text.split('。') if s.strip()]
+        sentences = []
+        for s in text.replace('!', '。').replace('！', '。').replace('?', '。').replace('？', '。').split('。'):
+            if s.strip():
+                sentences.append(s.strip())
         
         if not sentences:
             return ""
+        
+        if len(sentences) <= 1:
+            return sentences[0] + '。'
         
         inputs = self.tokenizer(
             sentences,
@@ -97,13 +103,22 @@ class BertSumExtractor(PreTrainedModel):
             return_tensors='pt'
         )
         
+        device = next(self.parameters()).device
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        
         with torch.no_grad():
-            scores = self(**inputs)
+            scores = self.model(
+                input_ids=inputs['input_ids'],
+                attention_mask=inputs['attention_mask'],
+                token_type_ids=inputs.get('token_type_ids', None)
+            )["sent_scores"].squeeze(-1)
             
         max_length = min(max_length, len(sentences))
         top_indices = scores.argsort(descending=True)[:max_length].cpu().numpy()
+        
         top_indices = sorted(top_indices)
         
+        # 生成摘要
         summary = '。'.join([sentences[i] for i in top_indices]) + '。'
         
         return summary
