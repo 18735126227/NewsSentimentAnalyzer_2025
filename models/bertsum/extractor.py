@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 from transformers import BertTokenizerFast, PreTrainedModel
@@ -32,8 +33,34 @@ class BertSumExtractor(PreTrainedModel):
         model = cls(*model_args, **kwargs)
         
         try:
-            state_dict = torch.load(pretrained_model_name_or_path, map_location="cpu")
-            model.load_state_dict(state_dict)
+            if os.path.isdir(pretrained_model_name_or_path):
+                model_path = os.path.join(pretrained_model_name_or_path, "pytorch_model.bin")
+            else:
+                model_path = pretrained_model_name_or_path
+                
+            state_dict = torch.load(model_path, map_location="cpu")
+            
+            new_state_dict = {}
+            for key, value in state_dict.items():
+                if key.startswith("bert."):
+                    new_key = "model." + key
+                    new_state_dict[new_key] = value
+                elif key.startswith("ext_layer."):
+                    new_key = "model." + key
+                    new_state_dict[new_key] = value
+                elif key.startswith("sentiment_classifier."):
+                    new_key = "model." + key
+                    new_state_dict[new_key] = value
+                else:
+                    new_state_dict[key] = value
+            
+            missing_keys, unexpected_keys = model.load_state_dict(new_state_dict, strict=False)
+            
+            if len(missing_keys) > 0:
+                print(f"缺失的键: {missing_keys}")
+            if len(unexpected_keys) > 0:
+                print(f"意外的键: {unexpected_keys}")
+                
         except Exception as e:
             print(f"加载预训练模型时出错: {e}")
             print("使用未初始化的模型")
